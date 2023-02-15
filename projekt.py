@@ -15,8 +15,6 @@ from skimage import measure, img_as_ubyte, io
 import seaborn as sns
 from skimage.filters import threshold_otsu
 from skimage.color import rgb2gray
-from scipy import stats
-import statsmodels.formula.api as smf
 
 study_df = pd.read_csv(os.path.join('study_list.csv'))
 
@@ -85,62 +83,51 @@ for i in range(0,7):
 
 areas = []
 eccentricity = []
+axis_maj_l = []
+axis_min_l = []
+inten_mean = []
+orient = []
+inten_max = []
 for j in range(0,7):
     test = img_as_ubyte(rgb2gray(io.imread("images/Final" + str(j) + ".png")))
     threshold = threshold_otsu(test)
     label_image = measure.label(test > threshold, connectivity = test.ndim)
-    props = measure.regionprops_table(label_image, test, properties=['area', 'eccentricity'])
+    props = measure.regionprops_table(label_image, test, properties=['area', 'eccentricity', 'axis_major_length', 'axis_minor_length', 
+                                                                     'intensity_mean', 'intensity_max', 'orientation'])
     areas.append(props['area'][0]) 
     eccentricity.append(props['eccentricity'][0])
-
-with h5py.File('patient_images_lowres.h5', 'r') as f:
-    for dset in traverse_datasets(f):
-        print('Path:', dset)
-        print('Shape:', f[dset].shape)
-        print('Data type:', f[dset].dtype)
-
-with h5py.File(os.path.join('patient_images_lowres.h5'), 'r') as p_data2:
-    ct_images2 = p_data2['ct_data'].items()
-    fig, sb_mat2 = plt.subplots(18,1, figsize=(10,55))
-    (ax1s2) = sb_mat2.T
-    for c_ax12, (p_id2, ct_img2) in zip(ax1s2, ct_images2):      
-        ct_image2 = np.mean(ct_img2, 1)[::-1]
-        c_ax12.imshow(ct_image2, cmap = 'bone')
-        c_ax12.axis('off')
+    axis_maj_l.append(props['axis_major_length'][0])
+    axis_min_l.append(props['axis_minor_length'][0])
+    inten_mean.append(props['intensity_mean'][0])
+    inten_max.append(props['intensity_max'][0])
+    orient.append(props['orientation'][0])
         
+prop_indices = [0, 1, 2, -1, 3, -1, -1, 4, -1, 5, -1, -1, 6, -1, -1, -1, -1, -1] 
+prop_names = ['Area Volume', 'Eccentricity', ' Length of the major axis', 'Length of the minor axis', 
+              'Mean intensity in the region', ' Greatest intensity in the region', 'Orientation']
+prop_values = [areas, eccentricity, axis_maj_l, axis_min_l, inten_mean, inten_max, orient]
 
-for a in range(sb_mat2.shape[0]):
-    extent2 = sb_mat2[a].get_window_extent().transformed(fig.dpi_scale_trans.inverted())
-    fig.savefig('images/PET' + str(a) + '.png', bbox_inches=extent2.expanded(1.1, 1.2))
-    
-for b in range(0,18):
-    im = Image.open("images/PET" + str(b) + ".png")
-    im = trim(im)
-    im = im.save("images/Trim" + str(b) + ".png")
 
-mean = []
-for c in range(0,18):
-    image = img_as_ubyte(rgb2gray(io.imread("images/Trim" + str(c) + ".png")))
-    threshold2 = threshold_otsu(image)
-    label_image2 = measure.label(image > threshold2, connectivity = image.ndim)
-    props2 = measure.regionprops_table(label_image2, image, properties=['area', 'intensity_mean'])
-    plt.imshow(label_image2)
-    mean.append(np.mean(label_image2))
-
-all_patients = ['STS_002', 'STS_003', 'STS_005',  'STS_011','STS_012', 'STS_015', 'STS_020', 'STS_021', 'STS_022', 'STS_023',  'STS_024',  'STS_029', 'STS_031', 'STS_034', 'STS_037', 'STS_039', 'STS_041', 'STS_048']
-df = pd.DataFrame(mean, index=all_patients, columns=['Average PET scan value'])
-df['Area Volume'] = [areas[0], areas[1], areas[2], 0, areas[3], 0, 0, areas[4], 0, areas[5], 0, 0, areas[6], 0, 0, 0, 0, 0]
-df['Eccentricity'] = [eccentricity[0], eccentricity[1], eccentricity[2], 0, eccentricity[3], 0, 0, eccentricity[4], 0, eccentricity[5], 0, 0, eccentricity[6], 0, 0, 0, 0, 0]
-#'No', 'No','No','No','Yes','No','Yes','Yes','Yes', 'Yes','No','No','Yes','Yes','Yes','Yes','No','No'
-# 0 - no, 1 - yes
-df['Recurrence'] = [0,0,0,0,1,0,1,1,1,1,0,0,1,1,1,1,0,0]
+all_patients = ['STS_002', 'STS_003', 'STS_005',  'STS_011','STS_012', 'STS_015', 'STS_020', 'STS_021', 'STS_022', 'STS_023',  
+                'STS_024',  'STS_029', 'STS_031', 'STS_034', 'STS_037', 'STS_039', 'STS_041', 'STS_048']
+df = pd.DataFrame()
+for (name, values) in zip(prop_names, prop_values): 
+    df_row = []
+    for idx in prop_indices:
+        if idx == -1:
+            df_row.append(float("nan")) 
+        else:
+            df_row.append(values[idx]) 
+    df[name] = df_row
+# 0,0,0,0,1,0,1,1,1,1,0,0,1,1,1,1,0,0
+df['Recurrence'] = ['No', 'No','No','No','Yes','No','Yes','Yes','Yes', 'Yes','No','No','Yes','Yes','Yes','Yes','No','No']
 df.to_csv('Patient_analysis.csv')
-# df['Area Volume'].hist(by = df['Recurrence'], sharex = True)
-y = df.Recurrence                          # M or B 
+
+y = df.Recurrence
 x = df.drop('Recurrence', axis=1)
 data_dia = y
 data = x
-data_n_2 = (data - data.mean()) / (data.std())              # standardization
+data_n_2 = (data - data.mean()) / (data.std())              
 data = pd.concat([y,data_n_2.iloc[:,0:18]],axis=1)
 data = pd.melt(data,id_vars="Recurrence",
                     var_name="features",
@@ -151,19 +138,5 @@ plt.xticks(rotation=90)
 plt.figure(figsize=(10,10))
 sns.boxplot(x="features", y="value", hue="Recurrence", data=data)
 plt.xticks(rotation=90)
-df['Area Volume'].hist(by = df['Recurrence'], sharex = True)
-
-corr_x = df['Area Volume'].values
-corr_x1 = df['Eccentricity']
-corr_x2 = df['Average PET scan value']
-corr_y = df['Recurrence'].values
-corr = stats.pointbiserialr(corr_x, corr_y)
-print('Pearsons correlation: %.3f' % corr[0] + ' with p-value: %.3f' % corr[1])
-corr1 = stats.pointbiserialr(corr_x1, corr_y)
-print('Pearsons correlation: %.3f' % corr1[0] + ' with p-value: %.3f' % corr1[1] )
-corr2 = stats.pointbiserialr(corr_x2, corr_y)
-print('Pearsons correlation: %.3f' % corr2[0] + ' with p-value: %.3f' % corr2[1] )
-newdf = df.copy()
-newdf.drop(columns= ['Average PET scan value', 'Area Volume'])
-model = smf.ols(formula='Eccentricity ~ Recurrence', data=newdf).fit()
-print(model.summary())
+for name in prop_names:
+    df[name].hist(by = df['Recurrence'], sharex = True)
